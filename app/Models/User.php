@@ -7,6 +7,7 @@ use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
@@ -49,12 +50,42 @@ class User extends Authenticatable implements PasskeyUser
         ];
     }
 
+    public const ROLE_ADMIN = 'admin';
+    public const ROLE_DOCTOR = 'doctor';
+    public const ROLE_NURSE = 'nurse';
+    public const ROLE_LAB_TECH = 'lab_tech';
+    public const ROLE_STAFF = 'staff';
+
     /**
      * Check if user is an admin.
      */
     public function isAdmin(): bool
     {
-        return $this->role === 'admin';
+        return $this->role === self::ROLE_ADMIN;
+    }
+
+    /**
+     * Check if user is a doctor.
+     */
+    public function isDoctor(): bool
+    {
+        return $this->role === self::ROLE_DOCTOR;
+    }
+
+    /**
+     * Check if user is a nurse.
+     */
+    public function isNurse(): bool
+    {
+        return $this->role === self::ROLE_NURSE;
+    }
+
+    /**
+     * Check if user is a laboratory technician.
+     */
+    public function isLabTech(): bool
+    {
+        return in_array($this->role, [self::ROLE_LAB_TECH, 'lab_technician']);
     }
 
     /**
@@ -62,7 +93,22 @@ class User extends Authenticatable implements PasskeyUser
      */
     public function isStaff(): bool
     {
-        return in_array($this->role, ['staff', 'admin']);
+        return in_array($this->role, [self::ROLE_STAFF, self::ROLE_ADMIN]);
+    }
+
+    /**
+     * Check if user has any of the given roles.
+     *
+     * @param string|array<string> $roles
+     */
+    public function hasRole(string|array $roles): bool
+    {
+        if ($this->isAdmin()) {
+            return true;
+        }
+
+        $roles = (array) $roles;
+        return in_array($this->role, $roles, true);
     }
 
     /**
@@ -83,5 +129,10 @@ class User extends Authenticatable implements PasskeyUser
         return Str::length($initials) > 1
             ? Str::substr($initials, 0, 1).Str::substr($initials, -1)
             : $initials;
+    }
+
+    public function appointments(): HasMany
+    {
+        return $this->hasMany(Appointment::class, 'doctor_id');
     }
 }

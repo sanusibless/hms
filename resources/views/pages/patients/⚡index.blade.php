@@ -26,6 +26,20 @@ new #[Title('Patients - Hospital Payment App')] class extends Component {
     public string $file_number = '';
     public string $date_of_birth = '';
     public string $gender = 'Female';
+    public string $address = '';
+    public string $blood_group = '';
+    public string $genotype = '';
+    public string $emergency_contact_name = '';
+    public string $emergency_contact_phone = '';
+    public string $emergency_contact_relationship = '';
+    public string $insurance_provider = '';
+    public string $insurance_policy_number = '';
+    public string $insurance_coverage_type = 'Self-Pay';
+    public string $allergies = '';
+    public string $chronic_conditions = '';
+
+    #[Url]
+    public string $admissionFilter = ''; // all, admitted, outpatient
 
     // Upload Patient CSV Properties
     public bool $showUploadModal = false;
@@ -38,8 +52,14 @@ new #[Title('Patients - Hospital Payment App')] class extends Component {
 
     public function openCreateModal(): void
     {
-        $this->reset(['first_name', 'last_name', 'phone_number', 'email', 'date_of_birth']);
+        $this->reset([
+            'first_name', 'last_name', 'phone_number', 'email', 'date_of_birth',
+            'address', 'blood_group', 'genotype', 'emergency_contact_name', 'emergency_contact_phone',
+            'emergency_contact_relationship', 'insurance_provider', 'insurance_policy_number',
+            'allergies', 'chronic_conditions'
+        ]);
         $this->gender = 'Female';
+        $this->insurance_coverage_type = 'Self-Pay';
 
         // Auto-generate suggested file number
         do {
@@ -60,6 +80,17 @@ new #[Title('Patients - Hospital Payment App')] class extends Component {
             'file_number' => 'required|string|max:50|unique:patients,file_number',
             'date_of_birth' => 'nullable|date',
             'gender' => 'nullable|string|in:Male,Female,Other',
+            'address' => 'nullable|string|max:255',
+            'blood_group' => 'nullable|string|max:10',
+            'genotype' => 'nullable|string|max:10',
+            'emergency_contact_name' => 'nullable|string|max:100',
+            'emergency_contact_phone' => 'nullable|string|max:25',
+            'emergency_contact_relationship' => 'nullable|string|max:50',
+            'insurance_provider' => 'nullable|string|max:100',
+            'insurance_policy_number' => 'nullable|string|max:50',
+            'insurance_coverage_type' => 'nullable|string|max:50',
+            'allergies' => 'nullable|string|max:255',
+            'chronic_conditions' => 'nullable|string|max:255',
         ]);
 
         $patient = Patient::create([
@@ -70,8 +101,22 @@ new #[Title('Patients - Hospital Payment App')] class extends Component {
             'file_number' => $validated['file_number'],
             'date_of_birth' => $validated['date_of_birth'] ?: null,
             'gender' => $validated['gender'] ?: null,
+            'address' => $validated['address'] ?: null,
+            'blood_group' => $validated['blood_group'] ?: null,
+            'genotype' => $validated['genotype'] ?: null,
+            'emergency_contact_name' => $validated['emergency_contact_name'] ?: null,
+            'emergency_contact_phone' => $validated['emergency_contact_phone'] ?: null,
+            'emergency_contact_relationship' => $validated['emergency_contact_relationship'] ?: null,
+            'insurance_provider' => $validated['insurance_provider'] ?: null,
+            'insurance_policy_number' => $validated['insurance_policy_number'] ?: null,
+            'insurance_coverage_type' => $validated['insurance_coverage_type'] ?: 'Self-Pay',
+            'allergies' => $validated['allergies'] ?: null,
+            'chronic_conditions' => $validated['chronic_conditions'] ?: null,
+            'admission_status' => 'outpatient',
             'created_by' => Auth::id(),
         ]);
+
+        \App\Services\AuditService::log('create', 'patients', (string)$patient->id, "Registered patient {$patient->full_name} ({$patient->file_number})");
 
         // Wallet is automatically created via Patient booted model hook
         $walletNumber = $patient->wallet->account_number ?? 'Auto-generated';
@@ -79,7 +124,7 @@ new #[Title('Patients - Hospital Payment App')] class extends Component {
         $this->showCreateModal = false;
         Flux::toast(
             variant: 'success',
-            text: "Patient {$patient->full_name} created. Wallet Account: {$walletNumber}"
+            text: "Patient {$patient->full_name} registered. Wallet Account: {$walletNumber}"
         );
     }
 
@@ -167,22 +212,6 @@ new #[Title('Patients - Hospital Payment App')] class extends Component {
         </div>
     </flux:card>
 
-    <flux:card class="p-4">
-        <div class="flex flex-col sm:flex-row gap-4 items-center justify-between">
-            <div class="w-full sm:max-w-md">
-                <flux:input
-                    wire:model.live.debounce.300ms="search"
-                    placeholder="Search by File No, Name, Phone, or Wallet Account..."
-                    icon="magnifying-glass"
-                    clearable
-                />
-            </div>
-            <div class="text-xs text-zinc-500">
-                Tip: Click on a patient's name to view their profile, wallet balance, and full transaction history.
-            </div>
-        </div>
-    </flux:card>
-
     <!-- Patients Table -->
     <flux:card class="p-0 overflow-hidden">
         <div class="overflow-x-auto">
@@ -191,10 +220,10 @@ new #[Title('Patients - Hospital Payment App')] class extends Component {
                     <tr>
                         <th class="py-3 px-4">Hospital File No</th>
                         <th class="py-3 px-4">Patient Name</th>
-                        <th class="py-3 px-4">Phone Number</th>
+                        <th class="py-3 px-4">Clinical / ADT</th>
+                        <th class="py-3 px-4">Phone / Insurance</th>
                         <th class="py-3 px-4">Wallet Account No</th>
                         <th class="py-3 px-4 text-right">Wallet Balance</th>
-                        <th class="py-3 px-4">Date Registered</th>
                         <th class="py-3 px-4 text-right">Actions</th>
                     </tr>
                 </thead>
@@ -205,17 +234,28 @@ new #[Title('Patients - Hospital Payment App')] class extends Component {
                                 <a href="{{ route('patients.show', $patient) }}" class="hover:underline" wire:navigate>
                                     {{ $patient->file_number }}
                                 </a>
+                                @if ($patient->blood_group)
+                                    <span class="block text-[10px] text-zinc-400 font-normal">Blood: {{ $patient->blood_group }} ({{ $patient->genotype ?? '—' }})</span>
+                                @endif
                             </td>
                             <td class="py-3.5 px-4">
                                 <a href="{{ route('patients.show', $patient) }}" class="font-medium text-zinc-900 dark:text-zinc-100 hover:text-blue-600" wire:navigate>
                                     {{ $patient->full_name }}
                                 </a>
-                                @if ($patient->email)
-                                    <span class="block text-xs text-zinc-400">{{ $patient->email }}</span>
+                                @if ($patient->allergies)
+                                    <span class="block text-[10px] text-red-600 dark:text-red-400 truncate max-w-xs">Allergy: {{ $patient->allergies }}</span>
                                 @endif
                             </td>
-                            <td class="py-3.5 px-4 font-mono text-xs">
-                                {{ $patient->phone_number }}
+                            <td class="py-3.5 px-4">
+                                @if ($patient->admission_status === 'admitted')
+                                    <flux:badge color="red" size="sm">Admitted</flux:badge>
+                                @else
+                                    <flux:badge color="zinc" size="sm">Outpatient</flux:badge>
+                                @endif
+                            </td>
+                            <td class="py-3.5 px-4 text-xs">
+                                <div class="font-mono">{{ $patient->phone_number }}</div>
+                                <span class="text-zinc-400">{{ $patient->insurance_provider ?? 'Self-Pay' }}</span>
                             </td>
                             <td class="py-3.5 px-4 font-mono text-xs font-semibold text-indigo-600 dark:text-indigo-400">
                                 {{ $patient->wallet->account_number ?? '—' }}
@@ -223,12 +263,12 @@ new #[Title('Patients - Hospital Payment App')] class extends Component {
                             <td class="py-3.5 px-4 text-right font-bold text-zinc-900 dark:text-zinc-100">
                                 {{ $patient->wallet ? $patient->wallet->formatted_balance : '₦0.00' }}
                             </td>
-                            <td class="py-3.5 px-4 text-xs text-zinc-500 whitespace-nowrap">
-                                {{ $patient->created_at->format('d M Y') }}
-                            </td>
                             <td class="py-3.5 px-4 text-right space-x-1 whitespace-nowrap">
+                                <flux:button href="{{ route('patients.treatment-record', $patient) }}" size="xs" variant="filled" icon="document-text" wire:navigate title="Digital EHR Chart">
+                                    EHR Chart
+                                </flux:button>
                                 <flux:button href="{{ route('patients.show', $patient) }}" size="xs" variant="ghost" wire:navigate>
-                                    View Profile
+                                    Profile
                                 </flux:button>
                                 <flux:button href="{{ route('payments.create', ['patient_id' => $patient->id]) }}" size="xs" variant="primary" wire:navigate>
                                     Pay
@@ -252,13 +292,14 @@ new #[Title('Patients - Hospital Payment App')] class extends Component {
     </flux:card>
 
     <!-- Create Patient Modal (Page 2 Requirements) -->
-    <flux:modal wire:model="showCreateModal" class="md:w-[32rem]">
-        <form wire:submit="createPatient" class="space-y-5">
+    <flux:modal wire:model="showCreateModal" class="md:w-[38rem]">
+        <form wire:submit="createPatient" class="space-y-4">
             <div>
-                <flux:heading size="lg">Create New Patient</flux:heading>
-                <flux:subheading>A unique wallet account number will be generated automatically upon creation.</flux:subheading>
+                <flux:heading size="lg">Register New Patient</flux:heading>
+                <flux:subheading>Full demographic, emergency contact, and insurance data capture</flux:subheading>
             </div>
 
+            <!-- Primary Identification -->
             <div class="grid grid-cols-2 gap-4">
                 <flux:field>
                     <flux:label>First Name <span class="text-red-500">*</span></flux:label>
@@ -281,33 +322,122 @@ new #[Title('Patients - Hospital Payment App')] class extends Component {
                 </flux:field>
 
                 <flux:field>
-                    <flux:label>Hospital File No <span class="text-red-500">*</span></flux:label>
+                    <flux:label>Hospital File No (MRN) <span class="text-red-500">*</span></flux:label>
                     <flux:input wire:model="file_number" placeholder="e.g. HSP-00125" required />
                     <flux:error name="file_number" />
                 </flux:field>
             </div>
 
-            <flux:field>
-                <flux:label>Email (Optional)</flux:label>
-                <flux:input wire:model="email" type="email" placeholder="patient@example.com" />
-                <flux:error name="email" />
-            </flux:field>
-
-            <div class="grid grid-cols-2 gap-4">
+            <div class="grid grid-cols-3 gap-3">
                 <flux:field>
-                    <flux:label>Date of Birth (Optional)</flux:label>
+                    <flux:label>Date of Birth</flux:label>
                     <flux:input wire:model="date_of_birth" type="date" />
                     <flux:error name="date_of_birth" />
                 </flux:field>
 
                 <flux:field>
-                    <flux:label>Gender (Optional)</flux:label>
+                    <flux:label>Gender</flux:label>
                     <flux:select wire:model="gender">
                         <flux:select.option value="Female">Female</flux:select.option>
                         <flux:select.option value="Male">Male</flux:select.option>
                         <flux:select.option value="Other">Other</flux:select.option>
                     </flux:select>
                     <flux:error name="gender" />
+                </flux:field>
+
+                <flux:field>
+                    <flux:label>Email</flux:label>
+                    <flux:input wire:model="email" type="email" placeholder="patient@example.com" />
+                    <flux:error name="email" />
+                </flux:field>
+            </div>
+
+            <flux:field>
+                <flux:label>Residential Address</flux:label>
+                <flux:input wire:model="address" placeholder="e.g. 14 Ahmadu Bello Way, Lagos" />
+                <flux:error name="address" />
+            </flux:field>
+
+            <!-- Clinical Baseline: Blood Group & Genotype -->
+            <div class="grid grid-cols-2 gap-4">
+                <flux:field>
+                    <flux:label>Blood Group</flux:label>
+                    <flux:select wire:model="blood_group">
+                        <flux:select.option value="">Select Blood Group</flux:select.option>
+                        <flux:select.option value="O+">O Positive (O+)</flux:select.option>
+                        <flux:select.option value="O-">O Negative (O-)</flux:select.option>
+                        <flux:select.option value="A+">A Positive (A+)</flux:select.option>
+                        <flux:select.option value="A-">A Negative (A-)</flux:select.option>
+                        <flux:select.option value="B+">B Positive (B+)</flux:select.option>
+                        <flux:select.option value="B-">B Negative (B-)</flux:select.option>
+                        <flux:select.option value="AB+">AB Positive (AB+)</flux:select.option>
+                        <flux:select.option value="AB-">AB Negative (AB-)</flux:select.option>
+                    </flux:select>
+                </flux:field>
+
+                <flux:field>
+                    <flux:label>Genotype</flux:label>
+                    <flux:select wire:model="genotype">
+                        <flux:select.option value="">Select Genotype</flux:select.option>
+                        <flux:select.option value="AA">AA</flux:select.option>
+                        <flux:select.option value="AS">AS</flux:select.option>
+                        <flux:select.option value="SS">SS</flux:select.option>
+                        <flux:select.option value="AC">AC</flux:select.option>
+                    </flux:select>
+                </flux:field>
+            </div>
+
+            <!-- Emergency Contact -->
+            <div class="grid grid-cols-3 gap-3">
+                <flux:field>
+                    <flux:label>Next of Kin / Contact</flux:label>
+                    <flux:input wire:model="emergency_contact_name" placeholder="Full name" />
+                </flux:field>
+
+                <flux:field>
+                    <flux:label>Contact Phone</flux:label>
+                    <flux:input wire:model="emergency_contact_phone" placeholder="Phone" />
+                </flux:field>
+
+                <flux:field>
+                    <flux:label>Relationship</flux:label>
+                    <flux:input wire:model="emergency_contact_relationship" placeholder="e.g. Spouse" />
+                </flux:field>
+            </div>
+
+            <!-- Insurance & Coverage -->
+            <div class="grid grid-cols-3 gap-3">
+                <flux:field>
+                    <flux:label>Coverage Type</flux:label>
+                    <flux:select wire:model="insurance_coverage_type">
+                        <flux:select.option value="Self-Pay">Self-Pay</flux:select.option>
+                        <flux:select.option value="Private HMO">Private HMO</flux:select.option>
+                        <flux:select.option value="Corporate HMO">Corporate HMO</flux:select.option>
+                        <flux:select.option value="NHIS">NHIS / State Scheme</flux:select.option>
+                    </flux:select>
+                </flux:field>
+
+                <flux:field>
+                    <flux:label>HMO / Provider</flux:label>
+                    <flux:input wire:model="insurance_provider" placeholder="e.g. Reliance HMO" />
+                </flux:field>
+
+                <flux:field>
+                    <flux:label>Policy / Enrollee ID</flux:label>
+                    <flux:input wire:model="insurance_policy_number" placeholder="e.g. REL-8921" />
+                </flux:field>
+            </div>
+
+            <!-- Baseline Alerts -->
+            <div class="grid grid-cols-2 gap-4">
+                <flux:field>
+                    <flux:label>Known Drug Allergies</flux:label>
+                    <flux:input wire:model="allergies" placeholder="e.g. Penicillin, Sulfa" />
+                </flux:field>
+
+                <flux:field>
+                    <flux:label>Chronic Conditions</flux:label>
+                    <flux:input wire:model="chronic_conditions" placeholder="e.g. Hypertension, Asthma" />
                 </flux:field>
             </div>
 
@@ -316,7 +446,7 @@ new #[Title('Patients - Hospital Payment App')] class extends Component {
                     Cancel
                 </flux:button>
                 <flux:button variant="primary" type="submit">
-                    Create & Generate Wallet
+                    Register Patient & Generate Wallet
                 </flux:button>
             </div>
         </form>

@@ -24,9 +24,23 @@ new #[Title('Patient Profile - Hospital Payment App')] class extends Component {
     public string $payDescription = '';
     public string $payReference = '';
 
+    public string $activeTab = 'wallet';
+
     public function mount(Patient $patient): void
     {
-        $this->patient = $patient->load(['wallet', 'creator', 'transactions.service']);
+        $this->patient = $patient->load([
+            'wallet',
+            'creator',
+            'transactions.service',
+            'healthRecords.doctor',
+            'vitals.recordedBy',
+            'labOrders.results',
+            'prescriptions.items',
+            'admissions.ward',
+            'currentWard',
+            'currentBed',
+            'invoices',
+        ]);
     }
 
     public function openFundModal(): void
@@ -142,22 +156,33 @@ new #[Title('Patient Profile - Hospital Payment App')] class extends Component {
     <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
         <!-- Patient Information Card -->
         <flux:card class="md:col-span-2 p-6">
-            <div class="flex items-start justify-between">
-                <div>
-                    <div class="flex items-center gap-3">
-                        <flux:avatar :name="$patient->full_name" size="lg" />
-                        <div>
+            <div class="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
+                <div class="flex items-center gap-3">
+                    <flux:avatar :name="$patient->full_name" size="lg" />
+                    <div>
+                        <div class="flex items-center gap-2">
                             <flux:heading size="xl">{{ $patient->full_name }}</flux:heading>
-                            <span class="inline-block mt-0.5 font-mono text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-900">
-                                File No: {{ $patient->file_number }}
-                            </span>
+                            @if ($patient->admission_status === 'admitted')
+                                <flux:badge color="red" size="sm">Admitted ({{ $patient->currentWard?->name }})</flux:badge>
+                            @else
+                                <flux:badge color="zinc" size="sm">Outpatient</flux:badge>
+                            @endif
                         </div>
+                        <span class="inline-block mt-0.5 font-mono text-xs font-bold text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/40 px-2 py-0.5 rounded border border-blue-200 dark:border-blue-900">
+                            MRN: {{ $patient->file_number }}
+                        </span>
                     </div>
                 </div>
-                <flux:badge color="zinc">{{ $patient->gender ?? 'Unspecified' }}</flux:badge>
+                <div class="flex items-center gap-2">
+                    <flux:badge color="zinc">{{ $patient->gender ?? 'Unspecified' }}</flux:badge>
+                    <flux:button href="{{ route('patients.treatment-record', ['patient' => $patient]) }}" variant="primary" icon="document-text" size="sm" wire:navigate>
+                        Digital EHR Chart
+                    </flux:button>
+                </div>
             </div>
 
-            <div class="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6 pt-6 border-t border-zinc-200 dark:border-zinc-700 text-sm">
+            <!-- Demographics & Insurance Grid -->
+            <div class="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6 pt-6 border-t border-zinc-200 dark:border-zinc-700 text-sm">
                 <div>
                     <span class="text-xs text-zinc-500 block uppercase">Phone Number</span>
                     <span class="font-medium text-zinc-800 dark:text-zinc-200 font-mono">{{ $patient->phone_number }}</span>
@@ -172,16 +197,56 @@ new #[Title('Patient Profile - Hospital Payment App')] class extends Component {
                         {{ $patient->date_of_birth ? $patient->date_of_birth->format('d M Y') : '—' }}
                     </span>
                 </div>
+
                 <div>
-                    <span class="text-xs text-zinc-500 block uppercase">Registration Date</span>
-                    <span class="font-medium text-zinc-800 dark:text-zinc-200">{{ $patient->created_at->format('d M Y, h:i A') }}</span>
+                    <span class="text-xs text-zinc-500 block uppercase">Blood Group & Genotype</span>
+                    <span class="font-bold text-zinc-900 dark:text-zinc-100 font-mono">
+                        {{ $patient->blood_group ?? '—' }} ({{ $patient->genotype ?? '—' }})
+                    </span>
+                </div>
+                <div>
+                    <span class="text-xs text-zinc-500 block uppercase">HMO / Insurance</span>
+                    <span class="font-medium text-zinc-800 dark:text-zinc-200">
+                        {{ $patient->insurance_provider ?? 'Self-Pay' }}
+                        @if ($patient->insurance_policy_number)
+                            <span class="block text-xs font-mono text-zinc-500">{{ $patient->insurance_policy_number }}</span>
+                        @endif
+                    </span>
+                </div>
+                <div>
+                    <span class="text-xs text-zinc-500 block uppercase">Next of Kin / Contact</span>
+                    <span class="font-medium text-zinc-800 dark:text-zinc-200">
+                        {{ $patient->emergency_contact_name ?? '—' }}
+                        @if ($patient->emergency_contact_phone)
+                            <span class="block text-xs font-mono text-zinc-500">{{ $patient->emergency_contact_phone }}</span>
+                        @endif
+                    </span>
                 </div>
             </div>
-            <div>
-                <flux:button  href="{{ route('patients.treatment-record', ['patient' => $patient]) }}" variant="ghost" icon="arrow-right" size="sm" wire:navigate>
-                    See Health Record
-                </flux:button>
-            </div>
+
+            @if ($patient->address)
+                <div class="mt-3 pt-3 border-t border-zinc-100 dark:border-zinc-800 text-xs text-zinc-600 dark:text-zinc-400">
+                    <strong>Address:</strong> {{ $patient->address }}
+                </div>
+            @endif
+
+            <!-- Clinical Alerts (Allergies & Chronic Conditions) -->
+            @if ($patient->allergies || $patient->chronic_conditions)
+                <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-4 pt-3 border-t border-zinc-200 dark:border-zinc-700 text-xs">
+                    @if ($patient->allergies)
+                        <div class="p-2.5 rounded-lg bg-red-50 dark:bg-red-950/40 text-red-700 dark:text-red-400 border border-red-200 dark:border-red-900/60 flex items-center gap-2">
+                            <flux:icon name="exclamation-triangle" class="size-4 shrink-0 text-red-500" />
+                            <span><strong>Allergies:</strong> {{ $patient->allergies }}</span>
+                        </div>
+                    @endif
+                    @if ($patient->chronic_conditions)
+                        <div class="p-2.5 rounded-lg bg-amber-50 dark:bg-amber-950/40 text-amber-700 dark:text-amber-400 border border-amber-200 dark:border-amber-900/60 flex items-center gap-2">
+                            <flux:icon name="information-circle" class="size-4 shrink-0 text-amber-500" />
+                            <span><strong>Chronic Conditions:</strong> {{ $patient->chronic_conditions }}</span>
+                        </div>
+                    @endif
+                </div>
+            @endif
         </flux:card>
 
         <!-- Wallet Card (Page 3 Requirements) -->
@@ -219,6 +284,30 @@ new #[Title('Patient Profile - Hospital Payment App')] class extends Component {
             </div>
         </flux:card>
     </div>
+
+    <!-- Navigation Tabs for Patient Chart & Transactions -->
+    <div class="flex flex-wrap items-center gap-2 border-b border-zinc-200 dark:border-zinc-700 pb-2">
+        <flux:button wire:click="$set('activeTab', 'wallet')" variant="{{ $activeTab === 'wallet' ? 'filled' : 'ghost' }}" size="sm" icon="credit-card">
+            Wallet Activity ({{ $patient->transactions->count() }})
+        </flux:button>
+        <flux:button wire:click="$set('activeTab', 'ehr')" variant="{{ $activeTab === 'ehr' ? 'filled' : 'ghost' }}" size="sm" icon="document-text">
+            Clinical EHR ({{ $patient->healthRecords->count() }})
+        </flux:button>
+        <flux:button wire:click="$set('activeTab', 'vitals')" variant="{{ $activeTab === 'vitals' ? 'filled' : 'ghost' }}" size="sm" icon="heart">
+            Vitals History ({{ $patient->vitals->count() }})
+        </flux:button>
+        <flux:button wire:click="$set('activeTab', 'lab')" variant="{{ $activeTab === 'lab' ? 'filled' : 'ghost' }}" size="sm" icon="beaker">
+            Lab Tests ({{ $patient->labOrders->count() }})
+        </flux:button>
+        <flux:button wire:click="$set('activeTab', 'rx')" variant="{{ $activeTab === 'rx' ? 'filled' : 'ghost' }}" size="sm" icon="clipboard-document-list">
+            Prescriptions ({{ $patient->prescriptions->count() }})
+        </flux:button>
+        <flux:button wire:click="$set('activeTab', 'admissions')" variant="{{ $activeTab === 'admissions' ? 'filled' : 'ghost' }}" size="sm" icon="building-office-2">
+            Inpatient ADT ({{ $patient->admissions->count() }})
+        </flux:button>
+    </div>
+
+    @if ($activeTab === 'wallet')
 
     <!-- Patient Wallet Transactions Table (Page 3 & Page 4 Requirements) -->
     <flux:card class="p-5">
@@ -288,6 +377,191 @@ new #[Title('Patient Profile - Hospital Payment App')] class extends Component {
             </table>
         </div>
     </flux:card>
+    @elseif ($activeTab === 'ehr')
+        <!-- Clinical EHR Tab -->
+        <flux:card class="p-5">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <flux:heading size="lg">Clinical Visit Notes & Consultations</flux:heading>
+                    <flux:subheading>Full physician diagnoses, ICD-10 codings, and treatment plans</flux:subheading>
+                </div>
+                <flux:button href="{{ route('patients.treatment-record', ['patient' => $patient]) }}" size="sm" variant="primary" icon="pencil-square" wire:navigate>
+                    Open Digital EHR Chart
+                </flux:button>
+            </div>
+
+            <div class="space-y-4">
+                @forelse ($patient->healthRecords as $rec)
+                    <div class="p-4 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/50">
+                        <div class="flex items-center justify-between">
+                            <div class="flex items-center gap-2">
+                                <flux:badge color="blue" size="sm">{{ ucfirst($rec->visit_type) }}</flux:badge>
+                                @if ($rec->icd_code)
+                                    <span class="font-mono text-xs font-bold bg-zinc-200 dark:bg-zinc-700 px-2 py-0.5 rounded">ICD: {{ $rec->icd_code }}</span>
+                                @endif
+                            </div>
+                            <span class="text-xs text-zinc-400">{{ $rec->created_at->format('d M Y, h:i A') }} • Dr. {{ $rec->doctor?->name ?? 'Physician' }}</span>
+                        </div>
+                        <h4 class="font-bold text-base text-zinc-900 dark:text-zinc-100 mt-2">{{ $rec->diagnosis }}</h4>
+                        <p class="text-xs text-zinc-600 dark:text-zinc-300 mt-1"><strong>Complaint:</strong> {{ $rec->chief_complaint }}</p>
+                        @if ($rec->treatment_plan)
+                            <p class="text-xs text-zinc-600 dark:text-zinc-300 mt-1"><strong>Plan:</strong> {{ $rec->treatment_plan }}</p>
+                        @endif
+                    </div>
+                @empty
+                    <div class="py-8 text-center text-zinc-500 text-sm">No clinical consultation notes recorded.</div>
+                @endforelse
+            </div>
+        </flux:card>
+    @elseif ($activeTab === 'vitals')
+        <!-- Vitals History Tab -->
+        <flux:card class="p-5">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <flux:heading size="lg">Vital Signs Flowsheet</flux:heading>
+                    <flux:subheading>Chronological log of physiological parameters</flux:subheading>
+                </div>
+                <flux:button href="{{ route('patients.treatment-record', ['patient' => $patient]) }}" size="sm" variant="primary" wire:navigate>
+                    Record Vitals
+                </flux:button>
+            </div>
+
+            <div class="overflow-x-auto">
+                <table class="w-full text-left text-sm text-zinc-600 dark:text-zinc-300">
+                    <thead class="bg-zinc-50 dark:bg-zinc-800/80 border-b border-zinc-200 dark:border-zinc-700 text-xs uppercase text-zinc-500">
+                        <tr>
+                            <th class="py-3 px-4">Recorded At</th>
+                            <th class="py-3 px-4">BP</th>
+                            <th class="py-3 px-4">Temp</th>
+                            <th class="py-3 px-4">Pulse</th>
+                            <th class="py-3 px-4">SpO2</th>
+                            <th class="py-3 px-4">Resp Rate</th>
+                            <th class="py-3 px-4">Status</th>
+                            <th class="py-3 px-4">Nurse / Staff</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-zinc-200 dark:divide-zinc-700/60 font-mono text-xs">
+                        @forelse ($patient->vitals as $vit)
+                            <tr class="hover:bg-zinc-50/50 dark:hover:bg-zinc-800/50">
+                                <td class="py-3 px-4 text-zinc-500">{{ $vit->recorded_at->format('d M Y, h:i A') }}</td>
+                                <td class="py-3 px-4 font-bold text-zinc-900 dark:text-zinc-100">{{ $vit->blood_pressure ?? '—' }}</td>
+                                <td class="py-3 px-4">{{ $vit->temperature ? $vit->temperature.'°C' : '—' }}</td>
+                                <td class="py-3 px-4">{{ $vit->pulse_rate ? $vit->pulse_rate.' bpm' : '—' }}</td>
+                                <td class="py-3 px-4">{{ $vit->spo2 ? $vit->spo2.'%' : '—' }}</td>
+                                <td class="py-3 px-4">{{ $vit->respiratory_rate ? $vit->respiratory_rate.' bpm' : '—' }}</td>
+                                <td class="py-3 px-4 font-sans">
+                                    <flux:badge color="{{ $vit->status_flag === 'critical' ? 'red' : ($vit->status_flag === 'guarded' ? 'amber' : 'green') }}" size="sm">
+                                        {{ ucfirst($vit->status_flag) }}
+                                    </flux:badge>
+                                </td>
+                                <td class="py-3 px-4 font-sans text-zinc-600 dark:text-zinc-300">{{ $vit->recordedBy?->name ?? 'Nurse' }}</td>
+                            </tr>
+                        @empty
+                            <tr><td colspan="8" class="py-8 text-center text-zinc-500 font-sans">No vital signs logged.</td></tr>
+                        @endforelse
+                    </tbody>
+                </table>
+            </div>
+        </flux:card>
+    @elseif ($activeTab === 'lab')
+        <!-- Lab Tests Tab -->
+        <flux:card class="p-5">
+            <div class="flex items-center justify-between mb-4">
+                <div>
+                    <flux:heading size="lg">Diagnostic Laboratory Investigations</flux:heading>
+                    <flux:subheading>Pathology, hematology, and biochemical test results</flux:subheading>
+                </div>
+                <flux:button href="{{ route('lab.orders') }}" size="sm" variant="primary" wire:navigate>
+                    Laboratory Bench
+                </flux:button>
+            </div>
+
+            <div class="space-y-4">
+                @forelse ($patient->labOrders as $lo)
+                    <div class="p-4 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/50">
+                        <div class="flex items-center justify-between">
+                            <span class="font-mono text-xs font-bold text-zinc-800 dark:text-zinc-200">{{ $lo->order_number }} • {{ $lo->test_name }}</span>
+                            <flux:badge color="{{ $lo->status === 'completed' ? 'green' : 'amber' }}" size="sm">{{ ucfirst($lo->status) }}</flux:badge>
+                        </div>
+                        @if ($lo->results->count() > 0)
+                            <div class="mt-3 bg-white dark:bg-zinc-800 rounded-lg p-3 space-y-2 border border-zinc-200 dark:border-zinc-700 text-xs">
+                                @foreach ($lo->results as $r)
+                                    <div class="flex items-center justify-between">
+                                        <span><strong>{{ $r->parameter_name }}:</strong> <span class="font-mono font-bold {{ $r->flag === 'critical' ? 'text-red-600' : '' }}">{{ $r->result_value }} {{ $r->unit }}</span> (Ref: {{ $r->reference_range ?? '—' }})</span>
+                                        <flux:badge color="{{ $r->flag === 'critical' ? 'red' : ($r->flag === 'abnormal' ? 'amber' : 'green') }}" size="sm">{{ ucfirst($r->flag) }}</flux:badge>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
+                    </div>
+                @empty
+                    <div class="py-8 text-center text-zinc-500 text-sm">No lab orders logged.</div>
+                @endforelse
+            </div>
+        </flux:card>
+    @elseif ($activeTab === 'rx')
+        <!-- Prescriptions Tab -->
+        <flux:card class="p-5">
+            <div class="flex items-center justify-between mb-4">
+                <flux:heading size="lg">Prescription & Medication History</flux:heading>
+                <flux:button href="{{ route('pharmacy.prescriptions') }}" size="sm" variant="primary" wire:navigate>
+                    Pharmacy Dispensing
+                </flux:button>
+            </div>
+
+            <div class="space-y-4">
+                @forelse ($patient->prescriptions as $rx)
+                    <div class="p-4 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/50 text-xs">
+                        <div class="flex items-center justify-between pb-2 border-b border-zinc-200 dark:border-zinc-700">
+                            <span class="font-mono font-bold">{{ $rx->prescription_number }}</span>
+                            <flux:badge color="{{ $rx->status === 'dispensed' ? 'green' : 'amber' }}" size="sm">{{ ucfirst($rx->status) }}</flux:badge>
+                        </div>
+                        <div class="mt-2 space-y-2">
+                            @foreach ($rx->items as $it)
+                                <div class="p-2 bg-white dark:bg-zinc-800 rounded border border-zinc-200 dark:border-zinc-700 flex items-center justify-between">
+                                    <div>
+                                        <strong class="text-zinc-900 dark:text-zinc-100">{{ $it->drug_name }}</strong> ({{ $it->dosage }})
+                                        <span class="text-zinc-500 block">{{ $it->frequency }} • {{ $it->duration }}</span>
+                                    </div>
+                                    <span class="font-mono font-bold">Qty: {{ $it->quantity }}</span>
+                                </div>
+                            @endforeach
+                        </div>
+                    </div>
+                @empty
+                    <div class="py-8 text-center text-zinc-500 text-sm">No prescriptions issued for this patient.</div>
+                @endforelse
+            </div>
+        </flux:card>
+    @elseif ($activeTab === 'admissions')
+        <!-- Admissions Tab -->
+        <flux:card class="p-5">
+            <div class="flex items-center justify-between mb-4">
+                <flux:heading size="lg">Admission, Discharge & Transfer (ADT) History</flux:heading>
+                <flux:button href="{{ route('wards.index') }}" size="sm" variant="primary" wire:navigate>
+                    Wards & Beds
+                </flux:button>
+            </div>
+
+            <div class="space-y-4">
+                @forelse ($patient->admissions as $adm)
+                    <div class="p-4 rounded-xl border border-zinc-200 dark:border-zinc-700 bg-zinc-50/50 dark:bg-zinc-800/50 text-xs">
+                        <div class="flex items-center justify-between pb-2 border-b border-zinc-200 dark:border-zinc-700">
+                            <span class="font-bold text-zinc-900 dark:text-zinc-100">{{ $adm->ward->name }} (Bed {{ $adm->bed->bed_number }})</span>
+                            <flux:badge color="{{ $adm->status === 'admitted' ? 'red' : 'green' }}" size="sm">{{ ucfirst($adm->status) }}</flux:badge>
+                        </div>
+                        <div class="mt-2 grid grid-cols-2 gap-2 text-zinc-600 dark:text-zinc-400">
+                            <div>Admitted: <strong>{{ $adm->admission_date->format('d M Y, h:i A') }}</strong></div>
+                            <div>Discharged: <strong>{{ $adm->discharge_date ? $adm->discharge_date->format('d M Y, h:i A') : 'Still Inpatient' }}</strong></div>
+                        </div>
+                        <div class="mt-2 text-zinc-700 dark:text-zinc-300"><strong>Reason:</strong> {{ $adm->reason }}</div>
+                    </div>
+                @empty
+                    <div class="py-8 text-center text-zinc-500 text-sm">No ward admission records.</div>
+                @endforelse
+            </div>
+        </flux:card>
+    @endif
 
     <!-- Fund Wallet Modal (Page 1 & 4 Requirements) -->
     <flux:modal wire:model="showFundModal" class="md:w-[28rem]">

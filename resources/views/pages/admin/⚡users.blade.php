@@ -49,7 +49,7 @@ new #[Title('User Management - Hospital Payment App')] class extends Component {
             'username' => 'required|string|max:50|unique:users,username',
             'email' => 'required|email|max:150|unique:users,email',
             'phone_number' => 'required|string|max:25',
-            'role' => 'required|in:admin,staff',
+            'role' => 'required|in:admin,doctor,nurse,lab_tech,staff',
             'department' => 'required|string|max:100',
             'password' => 'required|string|min:6',
         ]);
@@ -146,6 +146,12 @@ new #[Title('User Management - Hospital Payment App')] class extends Component {
                             <td class="py-3.5 px-4">
                                 @if ($u->role === 'admin')
                                     <flux:badge color="indigo" size="sm">Hospital Admin</flux:badge>
+                                @elseif ($u->role === 'doctor')
+                                    <flux:badge color="sky" size="sm">Doctor</flux:badge>
+                                @elseif ($u->role === 'nurse')
+                                    <flux:badge color="emerald" size="sm">Nurse</flux:badge>
+                                @elseif ($u->role === 'lab_tech')
+                                    <flux:badge color="amber" size="sm">Lab Technician</flux:badge>
                                 @else
                                     <flux:badge color="zinc" size="sm">Hospital Staff</flux:badge>
                                 @endif
@@ -236,7 +242,10 @@ new #[Title('User Management - Hospital Payment App')] class extends Component {
                 <flux:field>
                     <flux:label>Role <span class="text-red-500">*</span></flux:label>
                     <flux:select wire:model="role" required>
-                        <flux:select.option value="staff">Hospital Staff</flux:select.option>
+                        <flux:select.option value="staff">Hospital Staff / Cashier</flux:select.option>
+                        <flux:select.option value="doctor">Doctor</flux:select.option>
+                        <flux:select.option value="nurse">Nurse</flux:select.option>
+                        <flux:select.option value="lab_tech">Lab Technician</flux:select.option>
                         <flux:select.option value="admin">Hospital Admin</flux:select.option>
                     </flux:select>
                     <flux:error name="role" />
